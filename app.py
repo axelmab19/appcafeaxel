@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import socket
 from datetime import datetime
 
 # ==========================================
@@ -50,6 +51,72 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
+# FUNCIONES DE IMPRESIÓN POR RED (ESC/POS)
+# ==========================================
+def enviar_a_impresora_red(ip_impresora, contenido_escpos, puerto=9100):
+    """Envía comandos ESC/POS a impresoras térmicas conectadas por Wi-Fi / Ethernet."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(3.0)
+        s.connect((ip_impresora, puerto))
+        s.sendall(contenido_escpos)
+        s.close()
+        return True
+    except Exception as e:
+        return False
+
+def generar_escpos_ticket(folio, fecha_hora, items, total, metodo_pago):
+    """Genera el flujo de bytes ESC/POS para el ticket de cliente."""
+    ESC = b'\x1b'
+    GS = b'\x1d'
+    
+    # Inicializar, centrar, texto grande
+    datos = ESC + b'@' + ESC + b'a\x01' + ESC + b'!\x18' + b"CYBER PUNK CAFE\n"
+    datos += ESC + b'!\x00' + b"Tijuana, B.C.\n"
+    datos += b"--------------------------------\n"
+    datos += f"Folio: #{folio}\n".encode('utf-8')
+    datos += f"Fecha: {fecha_hora}\n".encode('utf-8')
+    datos += b"--------------------------------\n"
+    
+    # Alineación izquierda para los productos
+    datos += ESC + b'a\x00'
+    for item in items:
+        prod = f"{item['Cantidad']}x {item['Producto']} ({item['Tamaño']})\n"
+        detalles = f"   Leche: {item['Leche']}\n   Extras: {item['Extras']}\n"
+        precio = f"   Total: ${item['Total']:.2f} MXN\n"
+        datos += prod.encode('utf-8') + detalles.encode('utf-8') + precio.encode('utf-8')
+    
+    datos += b"--------------------------------\n"
+    datos += ESC + b'a\x01' + ESC + b'!\x10' + f"TOTAL: ${total:.2f} MXN\n".encode('utf-8')
+    datos += ESC + b'!\x00' + f"Pago: {metodo_pago}\n".encode('utf-8')
+    datos += b"--------------------------------\n"
+    datos += b"¡Gracias por tu compra!\n\n\n\n"
+    
+    # Comando de corte de papel (Corte total)
+    datos += GS + b'V\x41\x00'
+    return datos
+
+def generar_escpos_comanda(folio, fecha_hora, items):
+    """Genera el flujo de bytes ESC/POS para la comanda de la barra (Barista)."""
+    ESC = b'\x1b'
+    GS = b'\x1d'
+    
+    datos = ESC + b'@' + ESC + b'a\x01' + ESC + b'!\x30' + b"COMANDA BARRA\n"
+    datos += ESC + b'!\x10' + f"ORDEN #{folio}\n".encode('utf-8')
+    datos += ESC + b'!\x00' + f"Hora: {fecha_hora.split()[1]}\n".encode('utf-8')
+    datos += b"================================\n"
+    
+    datos += ESC + b'a\x00' + ESC + b'!\x08'
+    for item in items:
+        linea_main = f"-> {item['Cantidad']}x {item['Producto'].upper()} ({item['Tamaño']})\n"
+        linea_det = f"   * Leche: {item['Leche']}\n   * Extras: {item['Extras']}\n\n"
+        datos += linea_main.encode('utf-8') + linea_det.encode('utf-8')
+        
+    datos += b"================================\n\n\n"
+    datos += GS + b'V\x41\x00'
+    return datos
+
+# ==========================================
 # BASE DE DATOS DE MENÚ Y MODIFICADORES
 # ==========================================
 BEBIDAS_BASE = {
@@ -92,6 +159,18 @@ if "carrito" not in st.session_state:
 
 if "ventas_turno" not in st.session_state:
     st.session_state.ventas_turno = []
+
+if "folio_contador" not in st.session_state:
+    st.session_state.folio_contador = 101
+
+# ==========================================
+# CONFIGURACIÓN EN BARRA LATERAL (IMPRESORAS)
+# ==========================================
+with st.sidebar:
+    st.header("🖨️ Configuración de Impresoras")
+    usar_impresion_red = st.checkbox("Habilitar Impresión por Red", value=False)
+    ip_caja = st.text_input("IP Impresora Caja:", "192.168.1.100")
+    ip_barra = st.text_input("IP Impresora Barra:", "192.168.1.101")
 
 # ==========================================
 # ESTRUCTURA DE LA INTERFAZ TÁCTIL
@@ -174,13 +253,32 @@ with col_ticket:
         with col_cobrar:
             if st.button("💳 TERMINAR Y COBRAR"):
                 fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                for item in st.session_state.carrito:
-                    item["Fecha_Hora"] = fecha_hora
-                    item["Metodo_Pago"] = metodo_pago
-                    st.session_state.ventas_turno.append(item)
+                folio = st.session_state.folio_contador
                 
+                # 1. Registrar venta en la sesión del turno
+                for item in st.session_state.carrito:
+                    item_guardar = item.copy()
+                    item_guardar["Folio"] = folio
+                    item_guardar["Fecha_Hora"] = fecha_hora
+                    item_guardar["Metodo_Pago"] = metodo_pago
+                    st.session_state.ventas_turno.append(item_guardar)
+                
+                # 2. Enviar a impresión por Red (si está habilitado)
+                if usar_impresion_red:
+                    bytes_ticket = generar_escpos_ticket(folio, fecha_hora, st.session_state.carrito, total_orden, metodo_pago)
+                    bytes_comanda = generar_escpos_comanda(folio, fecha_hora, st.session_state.carrito)
+                    
+                    res_caja = enviar_a_impresora_red(ip_caja, bytes_ticket)
+                    res_barra = enviar_a_impresora_red(ip_barra, bytes_comanda)
+                    
+                    if res_caja and res_barra:
+                        st.toast("🖨️ Ticket y Comanda impresos con éxito.")
+                    else:
+                        st.warning("⚠️ No se pudo conectar a una o ambas impresoras de red.")
+
+                st.session_state.folio_contador += 1
                 st.session_state.carrito = []
-                st.success("🎉 ¡Orden Cobrada con Éxito!")
+                st.success(f"🎉 ¡Orden #{folio} Cobrada con Éxito!")
                 st.rerun()
 
         with col_limpiar:
