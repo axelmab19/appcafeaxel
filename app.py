@@ -71,12 +71,12 @@ def generar_escpos_ticket(folio, fecha_hora, items, total, metodo_pago):
     GS = b'\x1d'
     
     # Inicializar, centrar, texto grande
-    datos = ESC + b'@' + ESC + b'a\x01' + ESC + b'!\x18' + b"CYBER PUNK CAFE\n"
-    datos += ESC + b'!\x00' + b"Tijuana, B.C.\n"
-    datos += b"--------------------------------\n"
+    datos = ESC + b'@' + ESC + b'a\x01' + ESC + b'!\x18' + "CYBER PUNK CAFE\n".encode('utf-8')
+    datos += ESC + b'!\x00' + "Tijuana, B.C.\n".encode('utf-8')
+    datos += "--------------------------------\n".encode('utf-8')
     datos += f"Folio: #{folio}\n".encode('utf-8')
     datos += f"Fecha: {fecha_hora}\n".encode('utf-8')
-    datos += b"--------------------------------\n"
+    datos += "--------------------------------\n".encode('utf-8')
     
     # Alineación izquierda para los productos
     datos += ESC + b'a\x00'
@@ -86,11 +86,11 @@ def generar_escpos_ticket(folio, fecha_hora, items, total, metodo_pago):
         precio = f"   Total: ${item['Total']:.2f} MXN\n"
         datos += prod.encode('utf-8') + detalles.encode('utf-8') + precio.encode('utf-8')
     
-    datos += b"--------------------------------\n"
+    datos += "--------------------------------\n".encode('utf-8')
     datos += ESC + b'a\x01' + ESC + b'!\x10' + f"TOTAL: ${total:.2f} MXN\n".encode('utf-8')
     datos += ESC + b'!\x00' + f"Pago: {metodo_pago}\n".encode('utf-8')
-    datos += b"--------------------------------\n"
-    datos += b"¡Gracias por tu compra!\n\n\n\n"
+    datos += "--------------------------------\n".encode('utf-8')
+    datos += "¡Gracias por tu compra!\n\n\n\n".encode('utf-8')
     
     # Comando de corte de papel (Corte total)
     datos += GS + b'V\x41\x00'
@@ -101,10 +101,10 @@ def generar_escpos_comanda(folio, fecha_hora, items):
     ESC = b'\x1b'
     GS = b'\x1d'
     
-    datos = ESC + b'@' + ESC + b'a\x01' + ESC + b'!\x30' + b"COMANDA BARRA\n"
+    datos = ESC + b'@' + ESC + b'a\x01' + ESC + b'!\x30' + "COMANDA BARRA\n".encode('utf-8')
     datos += ESC + b'!\x10' + f"ORDEN #{folio}\n".encode('utf-8')
     datos += ESC + b'!\x00' + f"Hora: {fecha_hora.split()[1]}\n".encode('utf-8')
-    datos += b"================================\n"
+    datos += "================================\n".encode('utf-8')
     
     datos += ESC + b'a\x00' + ESC + b'!\x08'
     for item in items:
@@ -112,7 +112,7 @@ def generar_escpos_comanda(folio, fecha_hora, items):
         linea_det = f"   * Leche: {item['Leche']}\n   * Extras: {item['Extras']}\n\n"
         datos += linea_main.encode('utf-8') + linea_det.encode('utf-8')
         
-    datos += b"================================\n\n\n"
+    datos += "================================\n\n\n".encode('utf-8')
     datos += GS + b'V\x41\x00'
     return datos
 
